@@ -360,7 +360,7 @@
 
   <script>
     (() => {
-      const apiBase = window.location.origin;
+      const apiBase = {{ api_base | tojson }} || window.location.origin;
       const fileSelect = document.getElementById("fits-file-select");
       const cmapSelect = document.getElementById("cmap-select");
       const pminInput = document.getElementById("pmin-input");

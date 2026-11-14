@@ -347,9 +347,10 @@
     (() => {
       // When served unified (e.g. port 8000), use the same origin ("");
       // when running the standalone Flask server on port 5000/5001, connect to :8000.
-      const apiBase = (window.location.port === "5000" || window.location.port === "5001")
+      const configuredApiBase = {{ api_base | tojson }};
+      const apiBase = configuredApiBase || ((window.location.port === "5000" || window.location.port === "5001")
         ? `${window.location.protocol}//${window.location.hostname}:8000`
-        : "";
+        : "");
       const pageSize = 50;
       let offset = 0;
       let total = 0;

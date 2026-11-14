@@ -578,7 +578,7 @@
   <script src="/static/geo_location.js"></script>
   <script>
     (() => {
-      const apiBase = window.location.origin;
+      const apiBase = {{ api_base | tojson }} || window.location.origin;
       const canvas = document.getElementById("groundtrack-canvas");
       const ctx = canvas.getContext("2d");
 

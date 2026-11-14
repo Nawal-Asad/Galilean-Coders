@@ -110,6 +110,22 @@ HOST=0.0.0.0 ./start.sh
 platform, prefer its process manager and configured environment variables
 rather than running the development server from a terminal.
 
+### Deploy the frontend on Vercel
+
+The Flask frontend can be deployed from the repository root using the Vercel
+entrypoint in `pyproject.toml`. Import the GitHub repository in Vercel and set
+the Root Directory to `./` (the repository root, not `frontend/`). Vercel
+installs the frontend dependencies from `requirements.txt`.
+
+In the Vercel project settings, add the `SPHEREX_API_URL` environment variable
+with the public URL of your Railway backend, without a trailing slash. Redeploy
+after adding or changing the variable. In Railway, set
+`SPHEREX_CORS_ORIGINS` to the exact Vercel website origin, such as
+`https://your-project.vercel.app` (and your custom domain if you use one).
+
+The landing page and frontend assets are served by Vercel; API-backed pages
+also require the Railway backend and its data files to be available.
+
 ### Option 2: Run services separately (Dual-process Mode)
 
 You can also run both services as separate processes with `./start.sh --dual`, or start them in separate terminals:

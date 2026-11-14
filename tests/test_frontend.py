@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from frontend.app import app
 
@@ -48,6 +49,17 @@ class FrontendRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"FITS Image & Header Viewer", response.data)
         self.assertIn(b"fits-file-select", response.data)
+
+    def test_api_pages_use_configured_backend_url(self):
+        with patch("frontend.app.API_BASE_URL", "https://api.example.com/"):
+            for path in ("/explorer", "/fits", "/tracker"):
+                with self.subTest(path=path):
+                    response = self.client.get(path)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(
+                        b'https://api.example.com',
+                        response.data,
+                    )
 
 
 if __name__ == "__main__":

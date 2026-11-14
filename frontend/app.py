@@ -11,16 +11,24 @@ Edit the data lists below to change any text.
 """
 
 from flask import Flask, render_template, render_template_string, send_from_directory
+import os
 from pathlib import Path
 
 from spherex.config import DATA_DIR
 
 app = Flask(__name__)
+API_BASE_URL = os.getenv("SPHEREX_API_URL", "").strip().rstrip("/")
 GEOGRAPHY_DIR = DATA_DIR / "geography"
 GEOGRAPHY_FILES = {
     "ne_50m_admin_0_countries.geojson",
     "ne_50m_geography_marine_polys.geojson",
 }
+
+
+@app.context_processor
+def inject_api_base_url():
+    return {"api_base": API_BASE_URL}
+
 
 # ---------------------------------------------------------------- data
 
