@@ -1,0 +1,569 @@
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPHEREx Map</title>
+
+<style>
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: #070a12;
+    color: #e8eef7;
+    font-family: system-ui, sans-serif;
+  }
+
+  .wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+
+  .status {
+    font-size: 12px;
+    color: #5fe3f5;
+  }
+
+  .map-container {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #1f2c40;
+    border-radius: 12px;
+    background: #060a14;
+  }
+
+  canvas {
+    width: 100%;
+    display: block;
+  }
+
+  .info {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 4px;
+    color: #8696ad;
+    font: 12px monospace;
+  }
+
+  .info strong {
+    color: #5fe3f5;
+    font-weight: 500;
+  }
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="title">SPHEREx <span style="color:#5fe3f5">/</span> ORBIT TRACKER</div>
+    <div class="status" id="status">● CONNECTING</div>
+  </div>
+
+  <div class="map-container">
+    <canvas id="map"></canvas>
+  </div>
+
+  <div class="info">
+    <span>LAT: <strong id="lat">--</strong></span>
+    <span>LON: <strong id="lon">--</strong></span>
+    <span>TRACK: <strong id="track-status">WAITING</strong></span>
+    <span>UPDATED: <strong id="updated">--</strong></span>
+  </div>
+
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("map");
+  const ctx = canvas.getContext("2d");
+
+  const D2R = Math.PI / 180;
+
+  let land = [];
+  let tel = null;
+  let track = [];
+  let trail = [];
+
+  let mapReady = false;
+  let drawPending = false;
+
+  function X(lon) {
+    return (lon + 180) / 360 * canvas.clientWidth;
+  }
+
+  function Y(lat) {
+    return (90 - lat) / 180 * canvas.clientHeight;
+  }
+
+  // --------------------------------------------------
+  // CANVAS RESIZING
+  // --------------------------------------------------
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = canvas.parentElement.clientWidth;
+    const h = w / 2;
+
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+
+    canvas.style.width = "100%";
+    canvas.style.height = `${h}px`;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    scheduleDraw();
+  }
+
+  // --------------------------------------------------
+  // LOAD WORLD MAP
+  // --------------------------------------------------
+
+  async function loadLand() {
+    try {
+      const response = await fetch(
+        "https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json"
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to load world map");
+      }
+
+      const topo = await response.json();
+
+      const [sx, sy] = topo.transform.scale;
+      const [tx, ty] = topo.transform.translate;
+
+      const arcs = topo.arcs.map(arc => {
+        let x = 0;
+        let y = 0;
+
+        return arc.map(([dx, dy]) => {
+          x += dx;
+          y += dy;
+
+          return [
+            x * sx + tx,
+            y * sy + ty
+          ];
+        });
+      });
+
+      function buildRing(ids) {
+        const points = [];
+
+        ids.forEach(id => {
+          const arc = id < 0
+            ? arcs[~id].slice().reverse()
+            : arcs[id];
+
+          points.push(
+            ...(
+              points.length
+                ? arc.slice(1)
+                : arc
+            )
+          );
+        });
+
+        return points;
+      }
+
+      topo.objects.land.geometries.forEach(geometry => {
+        const polygons = geometry.type === "MultiPolygon"
+          ? geometry.arcs
+          : [geometry.arcs];
+
+        polygons.forEach(polygon => {
+          polygon.forEach(ring => {
+            const points = buildRing(ring);
+
+            if (points.length >= 3) {
+              land.push(points);
+            }
+          });
+        });
+      });
+
+      mapReady = true;
+      scheduleDraw();
+
+    } catch (error) {
+      console.error("World map loading failed:", error);
+      document.getElementById("status").textContent =
+        "● MAP LOAD ERROR";
+    }
+  }
+
+  // --------------------------------------------------
+  // DRAW GRID
+  // --------------------------------------------------
+
+  function drawGrid(w, h) {
+    ctx.strokeStyle = "rgba(85,115,155,0.20)";
+    ctx.lineWidth = 1;
+
+    for (let lon = -180; lon <= 180; lon += 30) {
+      ctx.beginPath();
+      ctx.moveTo(X(lon), 0);
+      ctx.lineTo(X(lon), h);
+      ctx.stroke();
+    }
+
+    for (let lat = -60; lat <= 60; lat += 30) {
+      ctx.beginPath();
+      ctx.moveTo(0, Y(lat));
+      ctx.lineTo(w, Y(lat));
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "#71839d";
+    ctx.font = "10px monospace";
+
+    for (let lat = -60; lat <= 60; lat += 30) {
+      ctx.fillText(`${lat}°`, 7, Y(lat) - 5);
+    }
+
+    for (let lon = -180; lon < 180; lon += 60) {
+      ctx.fillText(`${lon}°`, X(lon) + 4, h - 8);
+    }
+  }
+
+  // --------------------------------------------------
+  // DRAW LAND
+  // --------------------------------------------------
+
+  function drawLand() {
+    if (!mapReady) return;
+
+    ctx.fillStyle = "#15243a";
+    ctx.strokeStyle = "#2b4261";
+    ctx.lineWidth = 0.7;
+
+    land.forEach(ring => {
+      ctx.beginPath();
+
+      let previousLon = null;
+      let started = false;
+
+      ring.forEach(([lon, lat]) => {
+        if (
+          !Number.isFinite(lon) ||
+          !Number.isFinite(lat)
+        ) {
+          started = false;
+          previousLon = null;
+          return;
+        }
+
+        // Avoid long lines across the map boundary.
+        if (
+          previousLon !== null &&
+          Math.abs(lon - previousLon) > 180
+        ) {
+          started = false;
+        }
+
+        const x = X(lon);
+        const y = Y(lat);
+
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+
+        previousLon = lon;
+      });
+
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    });
+  }
+
+  // --------------------------------------------------
+  // DRAW GROUND TRACK
+  // --------------------------------------------------
+
+  function drawTrack(points, color, width, dash = []) {
+    if (!Array.isArray(points) || points.length < 2) {
+      return;
+    }
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dash);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+
+    ctx.beginPath();
+
+    let started = false;
+    let previousLon = null;
+
+    points.forEach(point => {
+      const lon = Number(point.longitude);
+      const lat = Number(point.latitude);
+
+      if (
+        !Number.isFinite(lon) ||
+        !Number.isFinite(lat)
+      ) {
+        started = false;
+        previousLon = null;
+        return;
+      }
+
+      if (
+        previousLon !== null &&
+        Math.abs(lon - previousLon) > 180
+      ) {
+        started = false;
+      }
+
+      const x = X(lon);
+      const y = Y(lat);
+
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
+
+      previousLon = lon;
+    });
+
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // --------------------------------------------------
+  // DRAW SATELLITE
+  // --------------------------------------------------
+
+  function drawSatellite() {
+    if (!tel) return;
+
+    const lon = Number(tel.longitude);
+    const lat = Number(tel.latitude);
+
+    if (
+      !Number.isFinite(lon) ||
+      !Number.isFinite(lat)
+    ) {
+      return;
+    }
+
+    const x = X(lon);
+    const y = Y(lat);
+
+    // Satellite marker.
+    ctx.fillStyle = "rgba(95,227,245,0.12)";
+    ctx.beginPath();
+    ctx.arc(x, y, 15, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(95,227,245,0.7)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x, y, 9, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = "#5fe3f5";
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Satellite label.
+    const w = canvas.clientWidth;
+    const labelX = x > w * 0.78 ? x - 100 : x + 15;
+
+    ctx.font = "600 12px monospace";
+    ctx.fillStyle = "#e8eef7";
+    ctx.fillText("SPHEREx", labelX, y - 8);
+
+    ctx.font = "10px monospace";
+    ctx.fillStyle = "#8ba4bf";
+
+    ctx.fillText(
+      `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`,
+      labelX,
+      y + 8
+    );
+  }
+
+  // --------------------------------------------------
+  // RENDER MAP
+  // --------------------------------------------------
+
+  function draw() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+
+    if (!w || !h) return;
+
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.fillStyle = "#060a14";
+    ctx.fillRect(0, 0, w, h);
+
+    drawGrid(w, h);
+    drawLand();
+
+    drawTrack(
+      track.filter(p => p.is_past),
+      "rgba(95,227,245,0.38)",
+      1.5,
+      [4, 5]
+    );
+
+    drawTrack(
+      track.filter(p => !p.is_past),
+      "rgba(95,227,245,0.85)",
+      2
+    );
+
+    // Recent satellite positions.
+    trail.forEach((point, index) => {
+      const lon = Number(point.longitude);
+      const lat = Number(point.latitude);
+
+      if (
+        !Number.isFinite(lon) ||
+        !Number.isFinite(lat)
+      ) {
+        return;
+      }
+
+      ctx.fillStyle = `rgba(95,227,245,${
+        (index + 1) / trail.length * 0.4
+      })`;
+
+      ctx.beginPath();
+      ctx.arc(X(lon), Y(lat), 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    drawSatellite();
+  }
+
+  function scheduleDraw() {
+    if (drawPending) return;
+
+    drawPending = true;
+
+    requestAnimationFrame(() => {
+      drawPending = false;
+      draw();
+    });
+  }
+
+  // --------------------------------------------------
+  // REFRESH TELEMETRY
+  // --------------------------------------------------
+
+  async function refresh() {
+    try {
+      const [telemetryResponse, trackResponse] =
+        await Promise.all([
+          fetch("/api/orbit/telemetry"),
+          fetch("/api/orbit/groundtrack")
+        ]);
+
+      if (!telemetryResponse.ok) {
+        throw new Error("Telemetry request failed");
+      }
+
+      const telemetry = await telemetryResponse.json();
+
+      if (
+        Number.isFinite(Number(telemetry.latitude)) &&
+        Number.isFinite(Number(telemetry.longitude))
+      ) {
+        tel = {
+          ...telemetry,
+          latitude: Number(telemetry.latitude),
+          longitude: Number(telemetry.longitude)
+        };
+
+        trail.push(tel);
+
+        if (trail.length > 40) {
+          trail.shift();
+        }
+
+        document.getElementById("lat").textContent =
+          `${tel.latitude.toFixed(2)}°`;
+
+        document.getElementById("lon").textContent =
+          `${tel.longitude.toFixed(2)}°`;
+
+        document.getElementById("status").textContent =
+          "● LIVE";
+
+        document.getElementById("updated").textContent =
+          new Date().toLocaleTimeString();
+      }
+
+      if (trackResponse.ok) {
+        const data = await trackResponse.json();
+
+        track = Array.isArray(data.points)
+          ? data.points
+          : [];
+
+        document.getElementById("track-status").textContent =
+          `${track.length} POINTS`;
+      }
+
+      scheduleDraw();
+
+    } catch (error) {
+      console.error("Telemetry refresh failed:", error);
+
+      document.getElementById("status").textContent =
+        "● CONNECTION ERROR";
+    }
+  }
+
+  // --------------------------------------------------
+  // START
+  // --------------------------------------------------
+
+  window.addEventListener("resize", resize);
+
+  resize();
+  loadLand();
+  refresh();
+
+  setInterval(refresh, 3000);
+
+})();
+</script>
+</body>
+</html>
+```
