@@ -1,2 +1,2 @@
 [tool.vercel]
-entrypoint = "frontend.app:app"
+entrypoint = "unified_app:app"
