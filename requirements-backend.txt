@@ -1,0 +1,11 @@
+astropy
+fastapi
+flask
+matplotlib
+python-dotenv
+numpy
+pandas
+reproject
+requests
+scipy
+uvicorn
