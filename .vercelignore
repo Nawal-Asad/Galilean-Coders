@@ -1,7 +1,8 @@
+data/
+results/
+backend/
 .venv/
 __pycache__/
-.git/
 *.pyc
 tests/
 docs/
-*.md
